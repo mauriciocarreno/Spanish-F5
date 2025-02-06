@@ -44,7 +44,7 @@ mel_spec_type = "vocos"
 target_rms = 0.1
 cross_fade_duration = 0.15
 ode_method = "euler"
-nfe_step = 32  # 16, 32
+nfe_step = 16  # 16, 32
 cfg_strength = 2.0
 sway_sampling_coef = -1.0
 speed = 1.0
@@ -385,12 +385,12 @@ def infer_batch_process(
     progress=tqdm,
     target_rms=0.1,
     cross_fade_duration=0.15,
-    nfe_step=32,
+    nfe_step=16,  # Puedes ajustar este valor
     cfg_strength=2.0,
     sway_sampling_coef=-1,
     speed=1,
     fix_duration=None,
-    device=None,
+    device=device,
 ):
     audio, sr = ref_audio
     if audio.shape[0] > 1:
@@ -409,8 +409,8 @@ def infer_batch_process(
 
     if len(ref_text[-1].encode("utf-8")) == 1:
         ref_text = ref_text + " "
-    for i, gen_text in enumerate(progress.tqdm(gen_text_batches)):
-        # Prepare the text
+    for i, gen_text in enumerate(progress(gen_text_batches)):
+        # Preparar el texto
         text_list = [ref_text + gen_text]
         final_text_list = convert_char_to_pinyin(text_list)
 
@@ -418,13 +418,12 @@ def infer_batch_process(
         if fix_duration is not None:
             duration = int(fix_duration * target_sample_rate / hop_length)
         else:
-            # Calculate duration
             ref_text_len = len(ref_text.encode("utf-8"))
             gen_text_len = len(gen_text.encode("utf-8"))
             duration = ref_audio_len + int(ref_audio_len / ref_text_len * gen_text_len / speed)
 
-        # inference
-        with torch.inference_mode():
+        # Inferencia con autocast
+        with torch.inference_mode(), torch.autocast():
             generated, _ = model_obj.sample(
                 cond=audio,
                 text=final_text_list,
@@ -434,62 +433,44 @@ def infer_batch_process(
                 sway_sampling_coef=sway_sampling_coef,
             )
 
-            generated = generated.to(torch.float32)
-            generated = generated[:, ref_audio_len:, :]
-            generated_mel_spec = generated.permute(0, 2, 1)
-            if mel_spec_type == "vocos":
-                generated_wave = vocoder.decode(generated_mel_spec)
-            elif mel_spec_type == "bigvgan":
-                generated_wave = vocoder(generated_mel_spec)
-            if rms < target_rms:
-                generated_wave = generated_wave * rms / target_rms
+        generated = generated.to(torch.float32)
+        generated = generated[:, ref_audio_len:, :]
+        generated_mel_spec = generated.permute(0, 2, 1)
+        if mel_spec_type == "vocos":
+            generated_wave = vocoder.decode(generated_mel_spec)
+        elif mel_spec_type == "bigvgan":
+            generated_wave = vocoder(generated_mel_spec)
+        if rms < target_rms:
+            generated_wave = generated_wave * rms / target_rms
 
-            # wav -> numpy
-            generated_wave = generated_wave.squeeze().cpu().numpy()
+        generated_wave = generated_wave.squeeze().cpu().numpy()
+        generated_waves.append(generated_wave)
+        spectrograms.append(generated_mel_spec[0].cpu().numpy())
 
-            generated_waves.append(generated_wave)
-            spectrograms.append(generated_mel_spec[0].cpu().numpy())
-
-    # Combine all generated waves with cross-fading
+    # Combina los segmentos con cross-fading
     if cross_fade_duration <= 0:
-        # Simply concatenate
         final_wave = np.concatenate(generated_waves)
     else:
         final_wave = generated_waves[0]
         for i in range(1, len(generated_waves)):
             prev_wave = final_wave
             next_wave = generated_waves[i]
-
-            # Calculate cross-fade samples, ensuring it does not exceed wave lengths
             cross_fade_samples = int(cross_fade_duration * target_sample_rate)
             cross_fade_samples = min(cross_fade_samples, len(prev_wave), len(next_wave))
-
             if cross_fade_samples <= 0:
-                # No overlap possible, concatenate
                 final_wave = np.concatenate([prev_wave, next_wave])
                 continue
-
-            # Overlapping parts
             prev_overlap = prev_wave[-cross_fade_samples:]
             next_overlap = next_wave[:cross_fade_samples]
-
-            # Fade out and fade in
             fade_out = np.linspace(1, 0, cross_fade_samples)
             fade_in = np.linspace(0, 1, cross_fade_samples)
-
-            # Cross-faded overlap
             cross_faded_overlap = prev_overlap * fade_out + next_overlap * fade_in
-
-            # Combine
             new_wave = np.concatenate(
                 [prev_wave[:-cross_fade_samples], cross_faded_overlap, next_wave[cross_fade_samples:]]
             )
-
             final_wave = new_wave
 
-    # Create a combined spectrogram
     combined_spectrogram = np.concatenate(spectrograms, axis=1)
-
     return final_wave, target_sample_rate, combined_spectrogram
 
 
