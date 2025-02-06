@@ -133,13 +133,20 @@ def initialize_asr_pipeline(device=device, dtype=None):
     )
 
 
+# get device
+def get_device():
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return torch.device("mps")
+    else:
+        return torch.device("cpu")
+
 # load model checkpoint for inference
 
 
 def load_checkpoint(model, ckpt_path, device, dtype=None, use_ema=True):
-    # Si el dispositivo fue ingresado como cadena, se convierte a torch.device
-    if not isinstance(device, torch.device):
-        device = torch.device(device)
+    device = torch.device(device)  # Garantizamos que device sea un objeto torch.device
 
     if dtype is None:
         dtype = (
@@ -150,7 +157,6 @@ def load_checkpoint(model, ckpt_path, device, dtype=None, use_ema=True):
     ckpt_type = ckpt_path.split(".")[-1]
     if ckpt_type == "safetensors":
         from safetensors.torch import load_file
-
         checkpoint = load_file(ckpt_path)
     else:
         checkpoint = torch.load(ckpt_path, weights_only=True)
@@ -163,12 +169,10 @@ def load_checkpoint(model, ckpt_path, device, dtype=None, use_ema=True):
             for k, v in checkpoint["ema_model_state_dict"].items()
             if k not in ["initted", "step"]
         }
-
-        # patch for backward compatibility, 305e3ea
+        # Patch para compatibilidad
         for key in ["mel_spec.mel_stft.mel_scale.fb", "mel_spec.mel_stft.spectrogram.window"]:
             if key in checkpoint["model_state_dict"]:
                 del checkpoint["model_state_dict"][key]
-
         model.load_state_dict(checkpoint["model_state_dict"])
     else:
         if ckpt_type == "safetensors":
