@@ -31,7 +31,7 @@ from f5_tts.model.utils import (
 
 _ref_audio_cache = {}
 
-device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+device = torch.device("cuda") if torch.cuda.is_available() else (torch.device("mps") if torch.backends.mps.is_available() else torch.device("cpu"))
 
 # -----------------------------------------
 
@@ -122,7 +122,7 @@ asr_pipe = None
 def initialize_asr_pipeline(device=device, dtype=None):
     if dtype is None:
         dtype = (
-            torch.float16 if device == "cuda" and torch.cuda.get_device_properties(device).major >= 6 else torch.float32
+            torch.float16 if device.type == "cuda" and torch.cuda.get_device_properties(device).major >= 6 else torch.float32
         )
     global asr_pipe
     asr_pipe = pipeline(
@@ -139,7 +139,7 @@ def initialize_asr_pipeline(device=device, dtype=None):
 def load_checkpoint(model, ckpt_path, device, dtype=None, use_ema=True):
     if dtype is None:
         dtype = (
-            torch.float16 if device == "cuda" and torch.cuda.get_device_properties(device).major >= 6 else torch.float32
+            torch.float16 if device.type == "cuda" and torch.cuda.get_device_properties(device).major >= 6 else torch.float32
         )
     model = model.to(dtype)
 
