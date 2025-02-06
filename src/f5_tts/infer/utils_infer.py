@@ -137,6 +137,10 @@ def initialize_asr_pipeline(device=device, dtype=None):
 
 
 def load_checkpoint(model, ckpt_path, device, dtype=None, use_ema=True):
+    # Si el dispositivo fue ingresado como cadena, se convierte a torch.device
+    if not isinstance(device, torch.device):
+        device = torch.device(device)
+
     if dtype is None:
         dtype = (
             torch.float16 if device.type == "cuda" and torch.cuda.get_device_properties(device).major >= 6 else torch.float32
