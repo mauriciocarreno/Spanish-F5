@@ -15,7 +15,7 @@ classifiers = [
 ]
 dependencies = [
     "accelerate>=0.33.0",
-    "bitsandbytes==0.44.1",
+    "bitsandbytes==0.42.0",
     "cached_path",
     "click",
     "datasets",

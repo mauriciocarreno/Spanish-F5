@@ -40,10 +40,12 @@ class F5TTS:
         self.seed = -1
         self.mel_spec_type = vocoder_name
 
-        # Set device
-        self.device = device or (
+        # Seleccionar el dispositivo usando torch.device para soportar MPS
+        self.device = device or torch.device(
             "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
         )
+        # Mensaje opcional para confirmar el dispositivo seleccionado
+        print(f"Dispositivo utilizado: {self.device}")
 
         # Load models
         self.load_vocoder_model(vocoder_name, local_path)
